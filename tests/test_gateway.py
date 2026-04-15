@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -38,7 +39,7 @@ class GatewayLifecycleTests(unittest.TestCase):
     def test_start_writes_pidfile_and_status_reports_running(self) -> None:
         with tempfile.TemporaryDirectory() as fake_home:
             stage_litellm_config(Path(fake_home))
-            launcher = ["/bin/sh", "-c", "sleep 30"]
+            launcher = ["/bin/sh", "-c", "exec -a litellm-mock sleep 30"]
             try:
                 state = gateway.start(home_override=fake_home, launcher=launcher)
                 self.assertTrue(state.get("started"))
@@ -57,7 +58,7 @@ class GatewayLifecycleTests(unittest.TestCase):
     def test_start_when_already_running_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as fake_home:
             stage_litellm_config(Path(fake_home))
-            launcher = ["/bin/sh", "-c", "sleep 30"]
+            launcher = ["/bin/sh", "-c", "exec -a litellm-mock sleep 30"]
             try:
                 gateway.start(home_override=fake_home, launcher=launcher)
                 second = gateway.start(home_override=fake_home, launcher=launcher)
@@ -73,7 +74,7 @@ class GatewayLifecycleTests(unittest.TestCase):
     def test_stop_terminates_process_and_clears_pidfile(self) -> None:
         with tempfile.TemporaryDirectory() as fake_home:
             stage_litellm_config(Path(fake_home))
-            launcher = ["/bin/sh", "-c", "sleep 30"]
+            launcher = ["/bin/sh", "-c", "exec -a litellm-mock sleep 30"]
             started = gateway.start(home_override=fake_home, launcher=launcher)
             pid = started["pid"]
 
@@ -101,13 +102,106 @@ class GatewayLifecycleTests(unittest.TestCase):
             pidfile.parent.mkdir(parents=True, exist_ok=True)
             pidfile.write_text("999999\n")
 
-            launcher = ["/bin/sh", "-c", "sleep 30"]
+            launcher = ["/bin/sh", "-c", "exec -a litellm-mock sleep 30"]
             try:
                 state = gateway.start(home_override=fake_home, launcher=launcher)
                 self.assertTrue(state.get("started"))
                 self.assertNotEqual(state["pid"], 999999)
             finally:
                 gateway.stop(home_override=fake_home)
+
+    def test_start_raises_when_child_dies_immediately(self) -> None:
+        with tempfile.TemporaryDirectory() as fake_home:
+            stage_litellm_config(Path(fake_home))
+            launcher = ["/bin/sh", "-c", "echo boom >&2; exit 7"]
+            with self.assertRaises(RuntimeError) as ctx:
+                gateway.start(
+                    home_override=fake_home,
+                    launcher=launcher,
+                    startup_timeout_seconds=0.5,
+                )
+            # Pidfile must not be left behind pointing at a dead PID.
+            self.assertFalse(gateway.pidfile_path(fake_home).exists())
+            # Error includes the log tail so the user can see what went wrong.
+            self.assertIn("boom", str(ctx.exception))
+
+
+class GatewayPidOwnershipTests(unittest.TestCase):
+    def test_status_flags_wrong_pid_owner(self) -> None:
+        with tempfile.TemporaryDirectory() as fake_home:
+            stage_litellm_config(Path(fake_home))
+            # Spawn a long-lived helper that is NOT litellm and record its PID.
+            helper = subprocess.Popen(
+                ["/bin/sh", "-c", "exec -a unrelated-helper sleep 30"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                pidfile = gateway.pidfile_path(fake_home)
+                pidfile.parent.mkdir(parents=True, exist_ok=True)
+                pidfile.write_text(f"{helper.pid}\n")
+
+                state = gateway.status(home_override=fake_home)
+                self.assertFalse(state["running"])
+                self.assertEqual(state.get("wrong_pid_owner"), helper.pid)
+                self.assertIsNotNone(state.get("owner_command"))
+                self.assertNotIn("litellm", state["owner_command"])
+            finally:
+                helper.terminate()
+                helper.wait(timeout=5)
+
+    def test_stop_refuses_to_signal_wrong_pid_owner(self) -> None:
+        with tempfile.TemporaryDirectory() as fake_home:
+            stage_litellm_config(Path(fake_home))
+            helper = subprocess.Popen(
+                ["/bin/sh", "-c", "exec -a unrelated-helper sleep 30"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                pidfile = gateway.pidfile_path(fake_home)
+                pidfile.parent.mkdir(parents=True, exist_ok=True)
+                pidfile.write_text(f"{helper.pid}\n")
+
+                state = gateway.stop(home_override=fake_home)
+                self.assertTrue(state.get("refused"))
+                self.assertEqual(state["pid"], helper.pid)
+                # The unrelated process must still be alive — we did NOT signal it.
+                self.assertTrue(gateway.is_pid_alive(helper.pid))
+                # Pidfile should be cleared so the user can retry from clean state.
+                self.assertFalse(pidfile.exists())
+            finally:
+                helper.terminate()
+                helper.wait(timeout=5)
+
+    def test_start_clears_wrong_pid_owner_pidfile_before_launching(self) -> None:
+        with tempfile.TemporaryDirectory() as fake_home:
+            stage_litellm_config(Path(fake_home))
+            helper = subprocess.Popen(
+                ["/bin/sh", "-c", "exec -a unrelated-helper sleep 30"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            launched = None
+            try:
+                pidfile = gateway.pidfile_path(fake_home)
+                pidfile.parent.mkdir(parents=True, exist_ok=True)
+                pidfile.write_text(f"{helper.pid}\n")
+
+                launched = gateway.start(
+                    home_override=fake_home,
+                    launcher=["/bin/sh", "-c", "exec -a litellm-mock sleep 30"],
+                )
+                self.assertTrue(launched.get("started"))
+                self.assertNotEqual(launched["pid"], helper.pid)
+            finally:
+                if launched is not None:
+                    gateway.stop(home_override=fake_home)
+                helper.terminate()
+                helper.wait(timeout=5)
 
 
 if __name__ == "__main__":

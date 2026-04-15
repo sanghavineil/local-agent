@@ -172,7 +172,7 @@ def main() -> int:
                 action=args.gateway_action,
                 home_override=getattr(args, "home", None),
             )
-        except FileNotFoundError as exc:
+        except (FileNotFoundError, RuntimeError) as exc:
             print(f"error: {exc}")
             return 1
         for line in lines:

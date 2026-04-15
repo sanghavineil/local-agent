@@ -48,6 +48,9 @@ def gateway_port(root: Path | None = None) -> int:
     return manifest.get("gateway", {}).get("port", 4000)
 
 
+GATEWAY_PROCESS_MARKER = "litellm"
+
+
 def is_pid_alive(pid: int) -> bool:
     if pid <= 0:
         return False
@@ -56,6 +59,41 @@ def is_pid_alive(pid: int) -> bool:
     except OSError as exc:
         return exc.errno == errno.EPERM
     return True
+
+
+def process_command(pid: int) -> str | None:
+    """Return the full command line for `pid` via `ps`, or None if it doesn't exist."""
+    if pid <= 0:
+        return None
+    try:
+        result = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "command="],
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    output = result.stdout.strip()
+    return output or None
+
+
+def is_our_gateway(pid: int) -> bool:
+    """Return True only if `pid` exists AND looks like our spawned LiteLLM proxy.
+
+    Defends against PID reuse: after a reboot or PID rollover, the PID recorded
+    in our pidfile may belong to an unrelated process. Sending SIGTERM to that
+    process would be incorrect, so we require a string match against the command
+    line before treating the PID as ours.
+    """
+    if not is_pid_alive(pid):
+        return False
+    cmd = process_command(pid)
+    if cmd is None:
+        return False
+    return GATEWAY_PROCESS_MARKER in cmd
 
 
 def read_pidfile(home_override: str | None = None) -> int | None:
@@ -77,28 +115,42 @@ def clear_pidfile(home_override: str | None = None) -> None:
 
 def status(home_override: str | None = None) -> dict:
     pid = read_pidfile(home_override)
-    if pid and is_pid_alive(pid):
+    if pid is None:
+        return {"running": False, "port": gateway_port()}
+    if is_our_gateway(pid):
         return {"running": True, "pid": pid, "port": gateway_port()}
-    if pid:
-        return {"running": False, "stale_pid": pid, "port": gateway_port()}
-    return {"running": False, "port": gateway_port()}
+    if is_pid_alive(pid):
+        # PID exists but does not look like our proxy — almost certainly PID
+        # reuse after a crash/reboot. Treat as not-running and refuse to signal it.
+        return {
+            "running": False,
+            "wrong_pid_owner": pid,
+            "owner_command": process_command(pid),
+            "port": gateway_port(),
+        }
+    return {"running": False, "stale_pid": pid, "port": gateway_port()}
 
 
 def start(
     home_override: str | None = None,
     launcher: list[str] | None = None,
+    startup_timeout_seconds: float = 0.5,
 ) -> dict:
     """Start the proxy. Returns a dict describing the new state.
 
     `launcher` is overridable for tests; in production we shell out to the
     `litellm` CLI installed via `pip install 'litellm[proxy]'`.
+
+    `startup_timeout_seconds` is how long we wait after spawning to confirm the
+    process is still alive. If it dies within this window we raise RuntimeError
+    with a tail of the log instead of writing a misleading pidfile.
     """
     state = status(home_override)
     if state["running"]:
         return {"already_running": True, **state}
 
-    # Stale pidfile from a prior crash — clean it up before restarting.
-    if "stale_pid" in state:
+    # Stale or wrong-owner pidfile — clean it up before spawning a fresh proxy.
+    if "stale_pid" in state or "wrong_pid_owner" in state:
         clear_pidfile(home_override)
 
     config_path = litellm_config_path(home_override)
@@ -128,13 +180,39 @@ def start(
             stdin=subprocess.DEVNULL,
             start_new_session=True,
         )
-    # The gateway is intentionally orphaned — we manage its lifecycle via PID +
-    # signals, not via Python's subprocess module. Mark the Popen as "reaped" so
-    # its __del__ does not emit a ResourceWarning when garbage-collected. The
+
+    # Confirm the proxy actually came up before declaring success. LiteLLM may
+    # exit immediately on a port collision, malformed config, or missing runtime
+    # dependency. Use `process.poll()` rather than `os.kill(pid, 0)` because the
+    # latter sees zombie children as alive — `poll()` actively reaps zombies so
+    # we can distinguish "still running" from "exited within the window".
+    deadline = time.monotonic() + startup_timeout_seconds
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            log_tail = _tail_file(log_path, lines=8)
+            raise RuntimeError(
+                f"gateway exited with code {process.returncode} within "
+                f"{startup_timeout_seconds}s of launch. Log tail ({log_path}):\n"
+                f"{log_tail}"
+            )
+        time.sleep(0.05)
+
+    # Past the startup window — the proxy is up. Detach Python's subprocess
+    # tracking so Popen.__del__ does not emit a ResourceWarning at GC. The
     # actual process keeps running under init/launchd until `stop()` signals it.
     process.returncode = 0
     pidfile_path(home_override).write_text(f"{process.pid}\n")
     return {"started": True, "pid": process.pid, "port": gateway_port(), "log": str(log_path)}
+
+
+def _tail_file(path: Path, lines: int = 8) -> str:
+    if not path.exists():
+        return "(no log file)"
+    try:
+        text = path.read_text(errors="replace")
+    except OSError as exc:
+        return f"(could not read log: {exc})"
+    return "\n".join(text.splitlines()[-lines:]) or "(empty)"
 
 
 def stop(home_override: str | None = None, wait_seconds: float = 5.0) -> dict:
@@ -144,6 +222,13 @@ def stop(home_override: str | None = None, wait_seconds: float = 5.0) -> dict:
     if not is_pid_alive(pid):
         clear_pidfile(home_override)
         return {"already_stopped": True, "stale_pid": pid}
+    if not is_our_gateway(pid):
+        # PID exists but is not our litellm proxy — almost certainly PID reuse.
+        # Refuse to signal it; clear the pidfile so the user can retry from
+        # a clean state. The caller surfaces this distinctly from a normal stop.
+        owner = process_command(pid)
+        clear_pidfile(home_override)
+        return {"refused": True, "pid": pid, "owner_command": owner}
 
     try:
         os.kill(pid, signal.SIGTERM)
@@ -180,6 +265,13 @@ def format_status(state: dict) -> list[str]:
         return [f"gateway: running  pid={state['pid']}  port={state['port']}"]
     if "stale_pid" in state:
         return [f"gateway: not running (stale pidfile referenced pid={state['stale_pid']})"]
+    if "wrong_pid_owner" in state:
+        owner = state.get("owner_command") or "<unknown>"
+        return [
+            f"gateway: not running (pidfile points at pid={state['wrong_pid_owner']}, "
+            f"which is not litellm: {owner})",
+            "Run `local-agent gateway start` to clear the stale pidfile and relaunch.",
+        ]
     return [f"gateway: not running  port={state['port']}"]
 
 
@@ -195,6 +287,12 @@ def format_start(state: dict) -> list[str]:
 def format_stop(state: dict) -> list[str]:
     if state.get("stopped"):
         return [f"gateway: stopped  (was pid={state['pid']})"]
+    if state.get("refused"):
+        owner = state.get("owner_command") or "<unknown>"
+        return [
+            f"gateway: refused to signal pid={state['pid']} — not our litellm proxy: {owner}",
+            "Cleared the stale pidfile. Re-run `local-agent gateway start` to relaunch.",
+        ]
     if state.get("already_stopped"):
         if "stale_pid" in state:
             return [f"gateway: not running  (cleared stale pidfile pid={state['stale_pid']})"]
@@ -227,7 +325,7 @@ def main() -> int:
     try:
         for line in run(args.action, home_override=args.home):
             print(line)
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, RuntimeError) as exc:
         print(f"error: {exc}")
         return 1
     return 0

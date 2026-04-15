@@ -95,6 +95,28 @@ class ResolveModelProviderTests(unittest.TestCase):
         self.assertEqual(len(warnings), 1)
         self.assertEqual(warnings[0].kind, "unknown-model-provider")
 
+    def test_provider_with_missing_kind_warns_and_returns_none(self) -> None:
+        manifest = {"providers": {"borked": {"display_name": "x", "base_url": "y"}}}
+        provider, warnings = sync_agent_parity.resolve_model_provider(
+            {"model_profile": "borked"}, manifest
+        )
+        self.assertIsNone(provider)
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(warnings[0].kind, "unknown-provider-kind")
+
+    def test_provider_with_unrecognized_kind_warns_and_returns_none(self) -> None:
+        manifest = {
+            "providers": {
+                "borked": {"kind": "magic-kind", "base_url": "y", "display_name": "x"}
+            }
+        }
+        provider, warnings = sync_agent_parity.resolve_model_provider(
+            {"model_profile": "borked"}, manifest
+        )
+        self.assertIsNone(provider)
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(warnings[0].kind, "unknown-provider-kind")
+
     def test_is_proxy_provider_classification(self) -> None:
         manifest = base_providers_manifest()
         self.assertFalse(sync_agent_parity.is_proxy_provider(None))
@@ -104,6 +126,53 @@ class ResolveModelProviderTests(unittest.TestCase):
         self.assertTrue(
             sync_agent_parity.is_proxy_provider(manifest["providers"]["ollama-qwen"])
         )
+
+
+class ResolveSettingsEnvKeysTests(unittest.TestCase):
+    def test_no_conditional_keys_returns_unconditional_only(self) -> None:
+        manifest = {"env_keys": ["A_KEY"]}
+        active = {"servers": {}}
+        self.assertEqual(
+            sync_agent_parity.resolve_settings_env_keys(manifest, active), ["A_KEY"]
+        )
+
+    def test_conditional_key_included_when_server_active(self) -> None:
+        manifest = {"env_keys": [], "conditional_env_keys": {"figma": ["FIGMA_API_KEY"]}}
+        active = {"servers": {"figma": {}, "playwright": {}}}
+        self.assertEqual(
+            sync_agent_parity.resolve_settings_env_keys(manifest, active),
+            ["FIGMA_API_KEY"],
+        )
+
+    def test_conditional_key_excluded_when_server_inactive(self) -> None:
+        manifest = {"env_keys": [], "conditional_env_keys": {"figma": ["FIGMA_API_KEY"]}}
+        active = {"servers": {"playwright": {}}}
+        self.assertEqual(
+            sync_agent_parity.resolve_settings_env_keys(manifest, active), []
+        )
+
+    def test_unconditional_and_conditional_dedup(self) -> None:
+        manifest = {
+            "env_keys": ["FIGMA_API_KEY"],
+            "conditional_env_keys": {"figma": ["FIGMA_API_KEY"]},
+        }
+        active = {"servers": {"figma": {}}}
+        self.assertEqual(
+            sync_agent_parity.resolve_settings_env_keys(manifest, active),
+            ["FIGMA_API_KEY"],
+        )
+
+
+class MasterKeyYamlSafetyTests(unittest.TestCase):
+    def test_master_key_with_colon_renders_quoted(self) -> None:
+        manifest = base_providers_manifest()
+        config = sync_agent_parity.render_litellm_config(manifest, "user:has:colons")
+        self.assertIn("master_key: 'user:has:colons'", config)
+
+    def test_master_key_with_single_quote_is_doubled(self) -> None:
+        manifest = base_providers_manifest()
+        config = sync_agent_parity.render_litellm_config(manifest, "it's-mine")
+        self.assertIn("master_key: 'it''s-mine'", config)
 
 
 class GatewayEnvTests(unittest.TestCase):
@@ -183,7 +252,7 @@ class RenderLitellmConfigTests(unittest.TestCase):
     def test_master_key_passed_through(self) -> None:
         manifest = base_providers_manifest()
         config = sync_agent_parity.render_litellm_config(manifest, "secret-99")
-        self.assertIn("master_key: secret-99", config)
+        self.assertIn("master_key: 'secret-99'", config)
 
     def test_api_key_emitted_for_api_key_auth(self) -> None:
         manifest = base_providers_manifest()
@@ -207,10 +276,13 @@ class RunSyncWithModelProvidersTests(unittest.TestCase):
             self.assertIn("env", settings)
             self.assertEqual(settings["env"]["ANTHROPIC_BASE_URL"], "http://localhost:4000")
             self.assertEqual(settings["env"]["ANTHROPIC_AUTH_TOKEN"], "local-agent-dev")
+            # Local profile excludes the figma MCP server, so the conditional env
+            # key must not leak into Claude's settings.
+            self.assertNotIn("FIGMA_API_KEY", settings["env"])
 
             litellm_config = (home / ".config" / "litellm" / "config.yaml").read_text()
             self.assertIn("model_name: ollama-qwen", litellm_config)
-            self.assertIn("master_key: local-agent-dev", litellm_config)
+            self.assertIn("master_key: 'local-agent-dev'", litellm_config)
 
             codex_config = (home / ".codex" / "config.toml").read_text()
             self.assertIn("BEGIN local-agent providers managed block", codex_config)

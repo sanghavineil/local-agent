@@ -294,14 +294,20 @@ def resolve_settings_env_keys(settings_manifest: dict, active_mcp_manifest: dict
     return sorted(keys)
 
 
+VALID_PROVIDER_KINDS = ("anthropic-direct", "openai-compatible")
+
+
 def resolve_model_provider(
     profile: dict, providers_manifest: dict
 ) -> tuple[dict | None, List[WarningItem]]:
     """Look up the active profile's `model_profile` in the providers manifest.
 
     Returns (provider_dict, warnings). Provider dict is None if the profile does
-    not specify a `model_profile`. Emits a warning if the referenced provider is
-    unknown.
+    not specify a `model_profile`, references an unknown provider, or references
+    one whose `kind` field is missing or unrecognized — in the last two cases a
+    warning is emitted so the user can fix the manifest. Returning None instead
+    of a half-valid provider keeps downstream renderers from injecting incorrect
+    proxy env or crashing on missing required fields like `base_url`.
     """
     warnings: List[WarningItem] = []
     name = profile.get("model_profile")
@@ -312,6 +318,15 @@ def resolve_model_provider(
         warnings.append(WarningItem("unknown-model-provider", name))
         return None, warnings
     provider = dict(providers[name])
+    kind = provider.get("kind")
+    if kind not in VALID_PROVIDER_KINDS:
+        warnings.append(
+            WarningItem(
+                "unknown-provider-kind",
+                f"provider '{name}' has kind={kind!r}; expected one of {VALID_PROVIDER_KINDS}",
+            )
+        )
+        return None, warnings
     provider["_name"] = name
     return provider, warnings
 
@@ -391,7 +406,11 @@ def render_litellm_config(providers_manifest: dict, master_key: str) -> str:
 
     lines.append("")
     lines.append("litellm_settings:")
-    lines.append(f"  master_key: {master_key}")
+    # Single-quote the master key so values containing YAML metacharacters
+    # (`:`, `#`, leading whitespace, `[`, `{`, etc.) survive parsing. Escape any
+    # literal single quotes by doubling them, per YAML 1.2 single-quoted style.
+    escaped_key = master_key.replace("'", "''")
+    lines.append(f"  master_key: '{escaped_key}'")
     lines.append("")
     return "\n".join(lines)
 
