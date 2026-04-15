@@ -6,7 +6,7 @@ If a preference should apply to both Claude and Codex, record it here rather tha
 
 ## Communication Defaults
 
-Operate in caveman mode (full intensity) by default for conversational replies. See `~/.claude/skills/caveman/SKILL.md`.
+Operate in caveman mode (lite intensity) by default for conversational replies. See `~/.claude/skills/caveman/SKILL.md`.
 
 Write in normal prose, not caveman, whenever output is a deliverable that will be read outside the chat:
 - Code, commits, PR descriptions, commit messages
