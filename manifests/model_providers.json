@@ -1,0 +1,29 @@
+{
+  "providers": {
+    "anthropic-cloud": {
+      "kind": "anthropic-direct",
+      "display_name": "Anthropic Cloud",
+      "default_model": "claude-opus-4-6"
+    },
+    "ollama-qwen": {
+      "kind": "openai-compatible",
+      "display_name": "Ollama (Qwen 2.5 Coder 32B)",
+      "base_url": "http://localhost:11434/v1",
+      "default_model": "qwen2.5-coder:32b",
+      "litellm_model": "ollama/qwen2.5-coder:32b",
+      "auth": "none"
+    },
+    "lmstudio": {
+      "kind": "openai-compatible",
+      "display_name": "LM Studio",
+      "base_url": "http://localhost:1234/v1",
+      "default_model": "qwen2.5-coder-32b-instruct",
+      "litellm_model": "openai/qwen2.5-coder-32b-instruct",
+      "auth": "api-key"
+    }
+  },
+  "gateway": {
+    "port": 4000,
+    "default_master_key": "local-agent-dev"
+  }
+}

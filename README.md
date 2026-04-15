@@ -1,13 +1,13 @@
 # local-agent
 
-Personal source of truth for Claude + Codex setup.
+Personal source of truth for shared coding-agent setup.
 
 This repo is meant to make two things repeatable:
 
 1. New machine setup
 2. New project setup
 
-The goal is that your agent behavior, shared instructions, skills, and MCP wiring are tracked here instead of living only in one machine's dotfiles.
+The goal is that your agent behavior, shared instructions, durable context, skills, and MCP wiring are tracked here instead of living only in one machine's dotfiles.
 
 ## What this repo owns
 
@@ -78,13 +78,14 @@ python3 scripts/local_agent.py bootstrap --apply --init-machine-local
 
 What this does:
 
-- writes `~/.codex/AGENTS.md` from `templates/home/AGENTS.md`
-- links `~/.claude/AGENTS.md` to that shared file
+- writes `~/.agents/AGENTS.md` from `templates/home/AGENTS.md`
+- links both `~/.codex/AGENTS.md` and `~/.claude/AGENTS.md` to that shared file
 - writes `~/.claude/CLAUDE.md` from template
 - writes `~/.claude/settings.json` from tracked settings defaults
 - writes `~/.claude/.mcp.json` from tracked MCP manifest plus machine-local secrets
 - syncs portable skills into both `~/.agents/skills` and `~/.claude/skills`
 - updates the managed MCP block in `~/.codex/config.toml`
+- only requires Claude env secrets for tools enabled in the active profile
 
 If you are migrating an already-customized machine and want the repo-owned portable skill copies to become canonical, use:
 
@@ -121,6 +122,7 @@ This creates:
 - optional `.impeccable.md`
 
 The generated `AGENTS.md` includes a managed copy of the shared home baseline plus a project-specific section for commands, domain context, and constraints.
+That repo `AGENTS.md` is intended to be the shared project memory/context file for Claude, Codex, and any future agent you wire in.
 
 If you rerun `init_project.py`, it refreshes only the managed shared-baseline block and leaves the project-specific section alone, as long as the file still contains the local-agent markers.
 
@@ -226,6 +228,7 @@ Then rerun the appropriate script.
 ## Current assumptions
 
 - This repo is the source of truth for agent setup.
-- Claude and Codex should share the same portable skill library where possible.
-- Codex-specific and Claude-specific home files are rendered from repo-managed templates/manifests.
+- Claude, Codex, and future coding agents should share the same durable instructions from `~/.agents/AGENTS.md` and repo `AGENTS.md` where possible.
+- Portable skills should be shared through `~/.agents/skills` where possible.
+- Agent-specific home files are rendered from repo-managed templates/manifests.
 - Existing unmanaged local files are not deleted automatically if that would be risky. The scripts prefer linking, updating managed files, or warning.

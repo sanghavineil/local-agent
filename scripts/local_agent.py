@@ -8,7 +8,9 @@ from pathlib import Path
 
 import bootstrap_machine
 import doctor
+import gateway
 import init_project
+import profile as profile_cmd
 import sync_agent_parity
 
 
@@ -16,7 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Operate the local-agent setup repo.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    sync_parser = subparsers.add_parser("sync", help="Sync home-level Claude + Codex setup from repo state.")
+    sync_parser = subparsers.add_parser("sync", help="Sync home-level shared agent setup from repo state.")
     sync_parser.add_argument("--apply", action="store_true", help="Apply changes. Defaults to dry-run.")
     sync_parser.add_argument("--home", default=None, help="Override home directory for testing.")
     sync_parser.add_argument(
@@ -39,7 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Create config/machine.local.json from config/machine.example.json if it is missing.",
     )
 
-    init_parser = subparsers.add_parser("init-project", help="Create or refresh project-level AGENTS.md/CLAUDE.md files.")
+    init_parser = subparsers.add_parser("init-project", help="Create or refresh project-level shared agent instruction files.")
     init_parser.add_argument("path", nargs="?", default=".", help="Project directory. Defaults to the current directory.")
     init_parser.add_argument("--apply", action="store_true", help="Apply changes. Defaults to dry-run.")
     init_parser.add_argument("--force", action="store_true", help="Overwrite managed files.")
@@ -57,6 +59,22 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Require .impeccable.md when checking a project.",
     )
+
+    profile_parser = subparsers.add_parser("profile", help="Manage the active profile in machine.local.json.")
+    profile_sub = profile_parser.add_subparsers(dest="profile_action", required=True)
+    profile_sub.add_parser("list", help="List all profiles; active is marked with '*'.")
+    show_parser = profile_sub.add_parser("show", help="Show details for a profile (defaults to active).")
+    show_parser.add_argument("name", nargs="?", default=None)
+    use_parser = profile_sub.add_parser("use", help="Switch the active profile.")
+    use_parser.add_argument("name")
+    use_parser.add_argument("--apply", action="store_true", help="Persist the change. Defaults to dry-run.")
+
+    gateway_parser = subparsers.add_parser("gateway", help="Manage the LiteLLM proxy used by Claude Code.")
+    gateway_sub = gateway_parser.add_subparsers(dest="gateway_action", required=True)
+    gateway_sub.add_parser("start", help="Start the proxy in the background.")
+    gateway_sub.add_parser("stop", help="Stop the running proxy if any.")
+    gateway_sub.add_parser("status", help="Report the proxy's current state.")
+    gateway_parser.add_argument("--home", default=None, help="Override home directory for testing.")
 
     return parser
 
@@ -133,6 +151,33 @@ def main() -> int:
                 print("- clean")
 
         return 1 if home_actions or home_warnings or project_issues else 0
+
+    if args.command == "profile":
+        try:
+            lines = profile_cmd.run(
+                action=args.profile_action,
+                name=getattr(args, "name", None),
+                apply=getattr(args, "apply", False),
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"error: {exc}")
+            return 1
+        for line in lines:
+            print(line)
+        return 0
+
+    if args.command == "gateway":
+        try:
+            lines = gateway.run(
+                action=args.gateway_action,
+                home_override=getattr(args, "home", None),
+            )
+        except FileNotFoundError as exc:
+            print(f"error: {exc}")
+            return 1
+        for line in lines:
+            print(line)
+        return 0
 
     raise AssertionError(f"Unhandled command: {args.command}")
 

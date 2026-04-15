@@ -16,12 +16,19 @@ import sync_agent_parity  # noqa: E402
 
 def dummy_machine_state() -> dict:
     return {
-        "mcp_env": {
-            "FIGMA_API_KEY": "figma-test",
-            "JIRA_HOST": "https://example.atlassian.net",
-            "JIRA_EMAIL": "neil@example.com",
-            "JIRA_API_TOKEN": "jira-test",
-        }
+        "active_profile": "work",
+        "profiles": {
+            "work": {
+                "mcp_env": {
+                    "FIGMA_API_KEY": "figma-test",
+                    "JIRA_HOST": "https://example.atlassian.net",
+                    "JIRA_EMAIL": "neil@example.com",
+                    "JIRA_API_TOKEN": "jira-test",
+                },
+                "model_profile": "anthropic-cloud",
+                "mcp_servers": ["figma", "atlassian-jira", "playwright"],
+            }
+        },
     }
 
 

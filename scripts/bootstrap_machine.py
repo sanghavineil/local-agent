@@ -10,7 +10,7 @@ import sync_agent_parity
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Bootstrap Claude + Codex setup on this machine.")
+    parser = argparse.ArgumentParser(description="Bootstrap shared coding-agent setup on this machine.")
     parser.add_argument("--apply", action="store_true", help="Apply changes. Defaults to dry-run.")
     parser.add_argument("--home", default=None, help="Override home directory for testing.")
     parser.add_argument(

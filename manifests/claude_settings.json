@@ -1,7 +1,10 @@
 {
-  "env_keys": [
-    "FIGMA_API_KEY"
-  ],
+  "env_keys": [],
+  "conditional_env_keys": {
+    "figma": [
+      "FIGMA_API_KEY"
+    ]
+  },
   "permissions": {
     "defaultMode": "acceptEdits",
     "allow": [
@@ -20,5 +23,10 @@
       "~/.claude"
     ]
   },
-  "effortLevel": "max"
+  "effortLevel": "max",
+  "hooks": {
+    "Stop": [
+      { "script": "notify-done.sh" }
+    ]
+  }
 }

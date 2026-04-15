@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Initialize a new project with Claude + Codex parity files."""
+"""Initialize a new project with shared coding-agent instruction files."""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def write_if_needed(path: Path, content: str, apply: bool, force: bool = False) 
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Initialize a project with local-agent parity files.")
+    parser = argparse.ArgumentParser(description="Initialize a project with local-agent instruction files.")
     parser.add_argument("path", nargs="?", default=".", help="Project directory. Defaults to the current directory.")
     parser.add_argument("--apply", action="store_true", help="Apply changes. Defaults to dry-run.")
     parser.add_argument("--force", action="store_true", help="Overwrite managed files.")

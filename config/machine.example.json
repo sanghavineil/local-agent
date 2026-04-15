@@ -1,8 +1,27 @@
 {
-  "mcp_env": {
-    "FIGMA_API_KEY": "replace-me",
-    "JIRA_HOST": "https://your-company.atlassian.net",
-    "JIRA_EMAIL": "you@example.com",
-    "JIRA_API_TOKEN": "replace-me"
+  "active_profile": "work",
+  "profiles": {
+    "work": {
+      "mcp_env": {
+        "FIGMA_API_KEY": "replace-me",
+        "JIRA_HOST": "https://your-company.atlassian.net",
+        "JIRA_EMAIL": "you@example.com",
+        "JIRA_API_TOKEN": "replace-me"
+      },
+      "model_profile": "anthropic-cloud",
+      "mcp_servers": ["figma", "atlassian-jira", "playwright"]
+    },
+    "personal": {
+      "mcp_env": {
+        "FIGMA_API_KEY": "replace-me"
+      },
+      "model_profile": "anthropic-cloud",
+      "mcp_servers": ["figma", "playwright"]
+    },
+    "local": {
+      "mcp_env": {},
+      "model_profile": "ollama-qwen",
+      "mcp_servers": ["playwright"]
+    }
   }
 }
