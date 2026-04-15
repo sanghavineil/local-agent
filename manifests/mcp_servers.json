@@ -1,0 +1,32 @@
+{
+  "servers": {
+    "figma": {
+      "command": "npx",
+      "args": [
+        "figma-developer-mcp",
+        "--stdio"
+      ],
+      "env_keys": [
+        "FIGMA_API_KEY"
+      ]
+    },
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "@anthropic-ai/mcp-server-playwright@latest"
+      ]
+    },
+    "atlassian-jira": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@atlassian-dc-mcp/jira"
+      ],
+      "env_keys": [
+        "JIRA_HOST",
+        "JIRA_EMAIL",
+        "JIRA_API_TOKEN"
+      ]
+    }
+  }
+}

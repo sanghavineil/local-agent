@@ -1,0 +1,29 @@
+{
+  "portable_skills": [
+    "adapt",
+    "animate",
+    "audit",
+    "bolder",
+    "caveman",
+    "clarify",
+    "colorize",
+    "critique",
+    "delight",
+    "distill",
+    "docs-closeout",
+    "impeccable",
+    "layout",
+    "lean-scope-planner",
+    "optimize",
+    "overdrive",
+    "polish",
+    "quieter",
+    "shape",
+    "tdd",
+    "typeset"
+  ],
+  "install_targets": [
+    "~/.agents/skills",
+    "~/.claude/skills"
+  ]
+}

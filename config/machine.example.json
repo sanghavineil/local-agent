@@ -1,0 +1,8 @@
+{
+  "mcp_env": {
+    "FIGMA_API_KEY": "replace-me",
+    "JIRA_HOST": "https://your-company.atlassian.net",
+    "JIRA_EMAIL": "you@example.com",
+    "JIRA_API_TOKEN": "replace-me"
+  }
+}
