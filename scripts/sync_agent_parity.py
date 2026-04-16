@@ -498,7 +498,13 @@ def render_hooks(hooks_manifest: dict, hook_command_paths: dict[str, Path]) -> d
                     # hooks directory. Skip rendering this entry; collect_hook_scripts
                     # will have already emitted a warning.
                     continue
-                new_entry["command"] = str(target)
+                # Claude Code hooks format: each entry wraps commands in a nested
+                # "hooks" array with typed hook objects.
+                new_entry["hooks"] = [{"type": "command", "command": str(target)}]
+            elif "command" in new_entry:
+                # Raw command pass-through: wrap in the nested format too.
+                cmd = new_entry.pop("command")
+                new_entry["hooks"] = [{"type": "command", "command": cmd}]
             rendered_entries.append(new_entry)
         if rendered_entries:
             rendered[event] = rendered_entries
