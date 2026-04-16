@@ -24,6 +24,17 @@
     ]
   },
   "effortLevel": "max",
+  "extraKnownMarketplaces": {
+    "hartbrook-plugins": {
+      "source": {
+        "source": "github",
+        "repo": "HartBrook/lookagain"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "look@hartbrook-plugins": true
+  },
   "hooks": {
     "Stop": [
       { "script": "notify-done.sh" }

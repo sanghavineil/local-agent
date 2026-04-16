@@ -25,5 +25,12 @@
   "install_targets": [
     "~/.agents/skills",
     "~/.claude/skills"
+  ],
+  "claude_plugin_skill_targets": [
+    "~/.agents/skills",
+    "~/.codex/skills"
+  ],
+  "claude_plugin_skill_skip": [
+    "lookagain-output-format"
   ]
 }

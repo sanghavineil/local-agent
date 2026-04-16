@@ -474,6 +474,11 @@ def render_claude_settings(
     rendered_hooks = render_hooks(hooks_manifest, hook_command_paths or {})
     if rendered_hooks:
         data["hooks"] = rendered_hooks
+
+    for key in ("extraKnownMarketplaces", "enabledPlugins"):
+        value = settings_manifest.get(key)
+        if value:
+            data[key] = value
     return data
 
 
@@ -567,6 +572,41 @@ def collect_portable_skills(root: Path, skills_manifest: dict) -> tuple[dict, Li
         else:
             warnings.append(WarningItem("missing-skill", name))
     return skills, warnings
+
+
+def collect_claude_plugin_skills(home: Path) -> dict:
+    """Walk ~/.claude/plugins/installed_plugins.json and return {name: path}.
+
+    Keys are skill directory names; values are absolute source paths under each
+    plugin's cached install. Allows non-Claude agents (Codex) to consume skills
+    that Claude otherwise loads via the plugin system.
+    """
+    installed_file = home / ".claude" / "plugins" / "installed_plugins.json"
+    if not installed_file.exists():
+        return {}
+    try:
+        data = json.loads(installed_file.read_text())
+    except json.JSONDecodeError:
+        return {}
+    skills: dict = {}
+    for entries in (data.get("plugins") or {}).values():
+        for entry in entries:
+            install_path_text = entry.get("installPath")
+            if not install_path_text:
+                continue
+            install_path = Path(install_path_text)
+            plugin_json = install_path / "dot-claude-plugin" / "plugin.json"
+            if not plugin_json.exists():
+                continue
+            try:
+                manifest = json.loads(plugin_json.read_text())
+            except json.JSONDecodeError:
+                continue
+            for skill_ref in manifest.get("skills") or []:
+                skill_path = (install_path / skill_ref.lstrip("./")).resolve()
+                if skill_path.is_dir():
+                    skills[skill_path.name] = skill_path
+    return skills
 
 
 def collect_hook_scripts(root: Path, settings_manifest: dict) -> tuple[dict, List[WarningItem]]:
@@ -705,6 +745,22 @@ def run_sync(
     for target_text in skills_manifest["install_targets"]:
         target_root = expand_home_path(target_text, home)
         for name, source in portable_skills.items():
+            actions.extend(
+                desired_symlink(
+                    source,
+                    target_root / name,
+                    apply,
+                    adopt_existing=adopt_existing_skills,
+                )
+            )
+
+    plugin_skills = collect_claude_plugin_skills(home)
+    skip = set(skills_manifest.get("claude_plugin_skill_skip") or [])
+    for target_text in skills_manifest.get("claude_plugin_skill_targets", []):
+        target_root = expand_home_path(target_text, home)
+        for name, source in plugin_skills.items():
+            if name in skip:
+                continue
             actions.extend(
                 desired_symlink(
                     source,

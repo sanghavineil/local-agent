@@ -72,7 +72,18 @@ class RenderHooksTests(unittest.TestCase):
         rendered = sync_agent_parity.render_hooks(manifest_hooks, paths)
         self.assertEqual(
             rendered,
-            {"Stop": [{"command": "/Users/x/.claude/hooks/notify-done.sh"}]},
+            {
+                "Stop": [
+                    {
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": "/Users/x/.claude/hooks/notify-done.sh",
+                            }
+                        ]
+                    }
+                ]
+            },
         )
 
     def test_matcher_field_passes_through(self) -> None:
@@ -87,7 +98,12 @@ class RenderHooksTests(unittest.TestCase):
                 "PreToolUse": [
                     {
                         "matcher": "Bash(*)",
-                        "command": "/Users/x/.claude/hooks/notify-done.sh",
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": "/Users/x/.claude/hooks/notify-done.sh",
+                            }
+                        ],
                     }
                 ]
             },
@@ -96,7 +112,10 @@ class RenderHooksTests(unittest.TestCase):
     def test_raw_command_passes_through(self) -> None:
         manifest_hooks = {"Stop": [{"command": "echo done"}]}
         rendered = sync_agent_parity.render_hooks(manifest_hooks, {})
-        self.assertEqual(rendered, {"Stop": [{"command": "echo done"}]})
+        self.assertEqual(
+            rendered,
+            {"Stop": [{"hooks": [{"type": "command", "command": "echo done"}]}]},
+        )
 
     def test_unresolved_script_is_dropped(self) -> None:
         manifest_hooks = {"Stop": [{"script": "missing.sh"}]}
@@ -126,7 +145,10 @@ class RunSyncWithHooksTests(unittest.TestCase):
             self.assertIn("hooks", settings)
             stop_hooks = settings["hooks"]["Stop"]
             self.assertEqual(len(stop_hooks), 1)
-            self.assertEqual(stop_hooks[0]["command"], str(hook_link))
+            self.assertEqual(
+                stop_hooks[0]["hooks"],
+                [{"type": "command", "command": str(hook_link)}],
+            )
 
             self.assertTrue(
                 any(action.kind == "link" and action.target == hook_link for action in actions)
